@@ -9,6 +9,11 @@ import SwiftUI
 
 @main
 struct VKTestAppApp: App {
+    
+    init() {
+            configureRealmMigration()
+        }
+    
     var body: some Scene {
         WindowGroup {
             ContentView()

@@ -6,31 +6,128 @@
 //
 
 import XCTest
+import RealmSwift
 @testable import VKTestApp
 
 final class VKTestAppTests: XCTestCase {
+    
+    private var storage: RepositoryStorage!
+    private var viewModel: RepositoryListViewModel!
+    private var realm: Realm!
 
     override func setUpWithError() throws {
-        // Put setup code here. This method is called before the invocation of each test method in the class.
-    }
+        try super.setUpWithError()
 
-    override func tearDownWithError() throws {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
-    }
+        // Настройка in-memory базы данных Realm
+        let config = Realm.Configuration(inMemoryIdentifier: "TestRealm")
+        realm = try Realm(configuration: config)
+        storage = RepositoryStorage(realm: realm) // Передаем тестовый Realm
 
-    func testExample() throws {
-        // This is an example of a functional test case.
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
-        // Any test you write for XCTest can be annotated as throws and async.
-        // Mark your test throws to produce an unexpected failure when your test encounters an uncaught error.
-        // Mark your test async to allow awaiting for asynchronous code to complete. Check the results with assertions afterwards.
-    }
-
-    func testPerformanceExample() throws {
-        // This is an example of a performance test case.
-        self.measure {
-            // Put the code you want to measure the time of here.
+        // Инициализация ViewModel на главном потоке
+        Task { @MainActor in
+            viewModel = RepositoryListViewModel(storage: storage)
         }
     }
 
+    override func tearDownWithError() throws {
+        realm.invalidate() // Освобождаем Realm
+        realm = nil
+        storage = nil
+        viewModel = nil
+        try super.tearDownWithError()
+    }
+
+    // Тест сохранения и извлечения репозиториев
+    func testSaveAndFetchRepositories() throws {
+        // Создаем тестовые данные
+        let repositories = [
+            Repository(id: 1, name: "Repo1", description: "Description1", stars: 50, owner: Owner(avatarURL: "url1")),
+            Repository(id: 2, name: "Repo2", description: "Description2", stars: 30, owner: Owner(avatarURL: "url2"))
+        ]
+        
+        // Сохраняем репозитории в хранилище
+        storage.save(repositories)
+        
+        // Извлекаем данные из хранилища
+        let fetchedRepositories = storage.fetch()
+        
+        XCTAssertEqual(fetchedRepositories.count, 2)
+        XCTAssertEqual(fetchedRepositories[0].id, 1)
+        XCTAssertEqual(fetchedRepositories[0].name, "Repo1")
+        XCTAssertEqual(fetchedRepositories[0].stars, 50)
+    }
+    
+    // Тест удаления репозитория
+    func testDeleteRepository() throws {
+        // Создаем тестовые данные
+        let repository = Repository(id: 1, name: "Repo1", description: "Description1", stars: 50, owner: Owner(avatarURL: "url1"))
+        storage.save([repository])
+        
+        // Удаляем репозиторий
+        storage.delete(repository)
+        
+        // Проверяем, что данные удалены
+        let fetchedRepositories = storage.fetch()
+        XCTAssertTrue(fetchedRepositories.isEmpty)
+    }
+    
+    // Тест ViewModel: загрузка данных из хранилища
+    @MainActor func testViewModelFetchingData() throws {
+        // Создаем тестовые данные
+        let repositories = [
+            Repository(id: 1, name: "Repo1", description: "Description1", stars: 50, owner: Owner(avatarURL: "url1")),
+            Repository(id: 2, name: "Repo2", description: "Description2", stars: 30, owner: Owner(avatarURL: "url2"))
+        ]
+        
+        // Сохраняем данные в хранилище
+        storage.save(repositories)
+        
+        // Загружаем данные из хранилища через ViewModel
+        viewModel.fetchRepositoriesFromStorage()
+        
+        XCTAssertEqual(viewModel.repositories.count, 2)
+        XCTAssertEqual(viewModel.repositories[0].id, 1)
+        XCTAssertEqual(viewModel.repositories[1].id, 2)
+    }
+    
+    // Тест ViewModel: сортировка репозиториев
+    @MainActor func testViewModelSortingRepositories() throws {
+        // Создаем тестовые данные
+        let repositories = [
+            Repository(id: 1, name: "Repo1", description: "Description1", stars: 50, owner: Owner(avatarURL: "url1")),
+            Repository(id: 2, name: "Repo2", description: "Description2", stars: 30, owner: Owner(avatarURL: "url2")),
+            Repository(id: 3, name: "Repo3", description: "Description3", stars: 100, owner: Owner(avatarURL: "url3"))
+        ]
+        
+        // Сохраняем данные в хранилище
+        storage.save(repositories)
+        
+        // Загружаем данные через ViewModel
+        viewModel.fetchRepositoriesFromStorage()
+        
+        // Сортируем по убыванию количества звезд
+        viewModel.sortRepositories(by: .starsDescending)
+        
+        XCTAssertEqual(viewModel.repositories[0].stars, 100)
+        XCTAssertEqual(viewModel.repositories[1].stars, 50)
+        XCTAssertEqual(viewModel.repositories[2].stars, 30)
+    }
+    
+    // Тест ViewModel: обновление репозитория
+    @MainActor func testUpdateRepository() throws {
+        // Создаем тестовые данные
+        let repository = Repository(id: 1, name: "Repo1", description: "Description1", stars: 50, owner: Owner(avatarURL: "url1"))
+        storage.save([repository])
+        
+        // Обновляем репозиторий
+        let updatedRepository = Repository(id: 1, name: "UpdatedRepo", description: "UpdatedDescription", stars: 100, owner: Owner(avatarURL: "url1"))
+        viewModel.updateRepository(updatedRepository)
+        
+        // Проверяем обновленные данные
+        let fetchedRepositories = storage.fetch()
+        XCTAssertEqual(fetchedRepositories.count, 1)
+        XCTAssertEqual(fetchedRepositories[0].name, "UpdatedRepo")
+        XCTAssertEqual(fetchedRepositories[0].description, "UpdatedDescription")
+        XCTAssertEqual(fetchedRepositories[0].stars, 100)
+    }
 }
